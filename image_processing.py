@@ -54,7 +54,9 @@ for i in range(len(img)):
     img_gray[i] = cv2.cvtColor(img[i], cv2.COLOR_BGR2GRAY)
     # Cutoff may need to be higher depending on background brightness
     img_processed[i] = process(img_gray[i],50,size)
-    show_image(img_processed[i])
+    #show_image(img_processed[i])
+
+# For Mike's images
 size = 960
 img_gray_W = np.zeros((len(img_W),1080,1920),dtype=np.uint8)
 img_processed_W = np.zeros((len(img_W),size,size),dtype=np.uint8)
