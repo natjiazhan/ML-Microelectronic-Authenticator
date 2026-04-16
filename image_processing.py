@@ -32,39 +32,37 @@ def show_image(image):
     plt.show()
 
 # Threshold filter and crop
-def process(image,cutoff,img_size):
-    _,filtered_img = cv2.threshold(image, cutoff, 255, cv2.THRESH_TOZERO)
+def process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
+    img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _,filtered_img = cv2.threshold(img_gray, cutoff, 255, cv2.THRESH_TOZERO)
     x, y, w, h = cv2.boundingRect(filtered_img)
-    center_x = (2*x+w)//2
-    center_y = (2*y+h)//2
-    s = img_size//2
-    if center_y-s < 0:
-        center_y -= center_y-s
-    if center_y+s > image.shape[1]:
-        center_y -= center_y+s-image.shape[1]
+    center = ((2*x+w)/2, (2*y+h)/2)
+    s = (crop_size, crop_size)
     # Fixed size crop
-    cropped_img = filtered_img[center_y-s:center_y+s,center_x-s:center_x+s]
-    return cropped_img
+    if apply_threshold_filter:
+        cropped_img = cv2.getRectSubPix(filtered_img, s, center)
+    else:
+        cropped_img = cv2.getRectSubPix(img_gray, s, center)
+    processed_img = cv2.resize(cropped_img, (new_size,new_size), interpolation = cv2.INTER_AREA)
+    return processed_img
 
-#240x240 image
+#outputs 224x224 image
+final_size = 224
+
+#240x240 crop
 size = 240
-img_gray = np.zeros((len(img),480,640),dtype=np.uint8)
-img_processed = np.zeros((len(img),size,size),dtype=np.uint8)
+img_processed = np.zeros((len(img),final_size,final_size),dtype=np.uint8)
 for i in range(len(img)):
-    img_gray[i] = cv2.cvtColor(img[i], cv2.COLOR_BGR2GRAY)
     # Cutoff may need to be higher depending on background brightness
-    img_processed[i] = process(img_gray[i],50,size)
+    img_processed[i] = process(img[i],50,size,final_size)
     #show_image(img_processed[i])
 
-# For Mike's images
+#960x960 crop
 size = 960
-img_gray_W = np.zeros((len(img_W),1080,1920),dtype=np.uint8)
-img_processed_W = np.zeros((len(img_W),size,size),dtype=np.uint8)
+img_processed_W = np.zeros((len(img_W),final_size,final_size),dtype=np.uint8)
 for i in range(len(img_W)):
-    img_gray_W[i] = cv2.cvtColor(img_W[i], cv2.COLOR_BGR2GRAY)
-    img_processed_W[i] = process(img_gray_W[i], 70, size)
+    img_processed_W[i] = process(img_W[i], 70, size,final_size)
     #show_image(img_processed_W[i])
-
 
 # Save the processed image
 #cv2.imwrite("N0001E1p.jpg",img_processed[0])
