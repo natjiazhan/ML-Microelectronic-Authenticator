@@ -3,21 +3,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load images
-# Make sure image files are in the same directory as your script
-img = np.array([
-cv2.imread("N0001E1.jpg"),
-cv2.imread("N0001E2.jpg"),
-cv2.imread("N0001E3.jpg"),
-cv2.imread("N0001N1.jpg"),
-cv2.imread("N0001N2.jpg"),
-cv2.imread("N0001N3.jpg"),
-cv2.imread("N0001S1.jpg"),
-cv2.imread("N0001S2.jpg"),
-cv2.imread("N0001S3.jpg"),
-cv2.imread("N0001W1.jpg"),
-cv2.imread("N0001W2.jpg"),
-cv2.imread("N0001W3.jpg"),
-])
+# Make sure image files are in the same directory as the script
+
+image_name = ["N0005","N0006"]
+# Number of sets of images per sample, for each image name you want to process
+number_of_images = [3,3]
+
+read_array = []
+write_array = []
+for i in range(len(image_name)):
+    for j in range(4*number_of_images[i]):
+        if j//number_of_images[i] == 0:
+            direction = "E"
+        elif j//number_of_images[i] == 1:
+            direction = "N"
+        elif j//number_of_images[i] == 2:
+            direction = "S"
+        elif j//number_of_images[i] == 3:
+            direction = "W"
+        read_array.append(image_name[i]+direction+str(j%number_of_images[i]+1)+".jpg")
+        write_array.append(image_name[i]+direction+str(j%number_of_images[i]+1)+"P"+".jpg")
+
+img = np.zeros((len(read_array),480,640,3),dtype=np.uint8)
+for i in range(len(read_array)):
+    img[i] = cv2.imread(read_array[i])
 
 # Mike's Images
 img_W = np.array([
@@ -54,29 +63,16 @@ size = 240
 img_processed = np.zeros((len(img),final_size,final_size),dtype=np.uint8)
 for i in range(len(img)):
     # Cutoff may need to be higher depending on background brightness
-    img_processed[i] = process(img[i],50,size,final_size)
+    img_processed[i] = process(img[i],80,size,final_size)
     #show_image(img_processed[i])
 
 #960x960 crop
 size = 960
 img_processed_W = np.zeros((len(img_W),final_size,final_size),dtype=np.uint8)
 for i in range(len(img_W)):
-    img_processed_W[i] = process(img_W[i], 70, size,final_size)
+    img_processed_W[i] = process(img_W[i], 80, size,final_size)
     #show_image(img_processed_W[i])
 
 # Save the processed image
-#cv2.imwrite("N0001E1p.jpg",img_processed[0])
-#cv2.imwrite("N0001E2p.jpg",img_processed[1])
-#cv2.imwrite("N0001E3p.jpg",img_processed[2])
-#cv2.imwrite("N0001N1p.jpg",img_processed[3])
-#cv2.imwrite("N0001N2p.jpg",img_processed[4])
-#cv2.imwrite("N0001N3p.jpg",img_processed[5])
-#cv2.imwrite("N0001S1p.jpg",img_processed[6])
-#cv2.imwrite("N0001S2p.jpg",img_processed[7])
-#cv2.imwrite("N0001S3p.jpg",img_processed[8])
-#cv2.imwrite("N0001W1p.jpg",img_processed[9])
-#cv2.imwrite("N0001W2p.jpg",img_processed[10])
-#cv2.imwrite("N0001W3p.jpg",img_processed[11])
-#cv2.imwrite("W0001p.jpg",img_processed_W[0])
-#cv2.imwrite("W0002p.jpg",img_processed_W[1])
-#cv2.imwrite("W0003p.jpg",img_processed_W[2])
+#for i in range(len(write_array)):
+    #img[i] = cv2.imwrite(write_array[i],img_processed[i])
