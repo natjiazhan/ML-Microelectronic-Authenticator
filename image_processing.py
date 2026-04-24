@@ -30,7 +30,8 @@ def show_image(image):
 # Threshold filter and crop
 def process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
     img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _,filtered_img = cv2.threshold(img_gray, cutoff, 255, cv2.THRESH_TOZERO)
+    blur = cv2.GaussianBlur(img_gray, (7, 7), 0)
+    _,filtered_img = cv2.threshold(blur, cutoff, 255, cv2.THRESH_TOZERO)
     x, y, w, h = cv2.boundingRect(filtered_img)
     center = ((2*x+w)/2, (2*y+h)/2)
     s = (crop_size, crop_size)
@@ -57,7 +58,7 @@ for i in range(len(img)):
         size = 240
 
     # Cutoff may need to be higher depending on background brightness
-    img_processed[i] = process(img[i],80,size,final_size)
+    img_processed[i] = process(img[i],50,size,final_size,False)
     #show_image(img_processed[i])
 
 # Save the processed image
