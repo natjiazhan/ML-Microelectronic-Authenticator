@@ -32,12 +32,13 @@ def process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
     img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(img_gray, (7, 7), 0)
     _,filtered_img = cv2.threshold(blur, cutoff, 255, cv2.THRESH_TOZERO)
+    _, filtered_img_bg = cv2.threshold(img_gray, 20, 255, cv2.THRESH_TOZERO)
     x, y, w, h = cv2.boundingRect(filtered_img)
     center = ((2*x+w)/2, (2*y+h)/2)
     s = (crop_size, crop_size)
     # Fixed size crop
     if apply_threshold_filter:
-        cropped_img = cv2.getRectSubPix(filtered_img, s, center)
+        cropped_img = cv2.getRectSubPix(filtered_img_bg, s, center)
     else:
         cropped_img = cv2.getRectSubPix(img_gray, s, center)
     processed_img = cv2.resize(cropped_img, (new_size,new_size), interpolation = cv2.INTER_AREA)
@@ -58,7 +59,8 @@ for i in range(len(img)):
         size = 240
 
     # Cutoff may need to be higher depending on background brightness
-    img_processed[i] = process(img[i],50,size,final_size,False)
+    # Set parameter to true to set background color to 0
+    img_processed[i] = process(img[i],50,size,final_size,True)
     #show_image(img_processed[i])
 
 # Save the processed image
