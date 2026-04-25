@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from pathlib import Path
+import os
 import random
 import torch
 import torch.nn as nn
@@ -18,22 +19,16 @@ for path in sorted(img_dir.iterdir()):
         read_array.append(str(path))
 
 img = []
+sampleID = []
+direction = []
 for i in range(len(read_array)):
     img.append(cv2.imread(read_array[i]))
-
+    sampleID.append(os.path.basename(read_array[i])[1:5])
+    direction.append(os.path.basename(read_array[i])[5])
+classes = sorted(set(sampleID))
+class_dict = {label: i for i, label in enumerate(classes)}
 # targets
-Y = np.array([
-    0,0,0,0,0,0,0,0,0,0,
-    1,1,1,1,1,1,1,1,1,1,
-    2,2,2,2,2,2,2,2,2,2,
-    3,3,3,3,3,3,3,3,3,3,
-    4,4,4,4,4,4,4,4,4,4,
-    5,5,5,5,5,5,5,5,5,5,
-    6,6,6,6,6,6,6,6,6,6,
-    7,7,7,7,7,7,7,7,7,7,
-    8,8,8,8,8,8,8,8,8,8,
-    9,9,9,9,9,9,9,9,9,9,
-])
+Y = [class_dict[i] for i in sampleID]
 
 # Creates new images with small variations
 def image_gen(image):
@@ -51,8 +46,7 @@ for i in range(len(img)):
     for j in range(new_images):
         new_image = image_gen(img[i])
         img.append(new_image)
-        # assumes 10 images per class in original dataset
-        Y = np.append(Y,i//10)
+        Y = np.append(Y,Y[i])
 
 # split and prep datasets
 img = np.array(img)
