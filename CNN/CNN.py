@@ -33,7 +33,7 @@ Y = [class_dict[i] for i in sampleID]
 # Creates new images with small variations
 def image_gen(image):
     h, w = image.shape[:2]
-    rand_angle = random.uniform(-5,5)
+    rand_angle = random.uniform(-10,10)
     M_rot = cv2.getRotationMatrix2D((w/2, h/2),rand_angle,1.0)
     M_rot[0,2] += random.randint(-5,5)
     M_rot[1,2] += random.randint(-5,5)
@@ -41,7 +41,7 @@ def image_gen(image):
     return gen_image
 
 # Generate augmented dataset
-new_images = 5
+new_images = 20
 for i in range(len(img)):
     for j in range(new_images):
         new_image = image_gen(img[i])
@@ -54,7 +54,6 @@ img = np.mean(img,axis=3)
 mean = img.mean()
 std = img.std()
 img = (img-mean)/std
-
 # 70/30 training/test split
 np.random.seed(1)
 idx = np.random.permutation(len(img))
@@ -92,27 +91,45 @@ optimizer = optim.Adam(cnn.parameters(), lr=0.002)
 epochs = 100
 batch_size = 8
 
-for i in range(epochs):
-    for j in range(0, len(X_train), batch_size):
+mode = input("Train model (0) or Predict (1)")
+if mode == '0':
+    for i in range(epochs):
+        for j in range(0, len(X_train), batch_size):
         # train in batches
-        inputs = X_train[j:j + batch_size]
-        labels = Y_train[j:j + batch_size]
-        optimizer.zero_grad()
-        outputs = cnn(inputs)
-        loss = lossFunc(outputs, labels)
-        loss.backward()
-        optimizer.step()
-    if i % 10 == 9:
-        print(i, loss.item())
-
-y_pred = torch.argmax(cnn(X_test), dim=1)
-errors = 0
-for i in range(len(y_pred)):
-    if y_pred[i] != Y_test[i]:
-        errors += 1
-accuracy = 1-errors/len(y_pred)
-print(y_pred)
-print(Y_test)
-print("Accuracy: ", accuracy)
-# save weights
-torch.save(cnn.state_dict(), "CNN_weights.pth")
+            inputs = X_train[j:j + batch_size]
+            labels = Y_train[j:j + batch_size]
+            optimizer.zero_grad()
+            outputs = cnn(inputs)
+            loss = lossFunc(outputs, labels)
+            loss.backward()
+            optimizer.step()
+        if i % 10 == 9:
+            print(i, loss.item())
+    # save weights
+    torch.save(cnn.state_dict(), "CNN_weights.pth")
+    print("Finished Training")
+    y_pred = torch.argmax(cnn(X_test), dim=1)
+    errors = 0
+    for i in range(len(y_pred)):
+        if y_pred[i] != Y_test[i]:
+            errors += 1
+    accuracy = 1 - errors / len(y_pred)
+    print(y_pred)
+    print(Y_test)
+    print("Accuracy: ", accuracy)
+elif mode == '1':
+    cnn.load_state_dict(torch.load("CNN_weights.pth"))
+    cnn.eval()
+    img_dir = Path("Test_image")
+    test_img = cv2.imread(next(img_dir.glob("*.jpg")))
+    test_img = np.array(test_img)
+    test_img = np.mean(test_img, axis=2)
+    test_img = (test_img - mean) / std
+    test_img = torch.from_numpy(test_img).float().unsqueeze(0).unsqueeze(0)
+    y_pred = torch.argmax(cnn(test_img), dim=1)
+    prob = torch.softmax(cnn(test_img), dim=1).detach().cpu().numpy()
+    inv_dict = {value: key for key, value in class_dict.items()}
+    print("Sample ID: ", inv_dict[int(y_pred)])
+    print("Confidence: ", np.max(prob))
+else:
+    print("Invalid Input")
