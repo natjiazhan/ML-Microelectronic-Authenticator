@@ -22,13 +22,42 @@ img = []
 for i in range(len(read_array)):
     img.append(cv2.imread(read_array[i]))
 
+def combine(image1,image2,image3,image4,threshold = 20):
+    image1 = process(image1,threshold)
+    image2 = process(image2,threshold)
+    image3 = process(image3,threshold)
+    image4 = process(image4,threshold)
+    a1 = cv2.add(image1,image2)
+    a2 = cv2.add(image3,image4)
+    combined = cv2.add(a1,a2)
+    #combined = cv2.threshold(combined, 1, 255, cv2.THRESH_BINARY)[1]
+    return combined
+
+def process(image,cutoff):
+    img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _,filtered_img = cv2.threshold(img_gray, cutoff, 255, cv2.THRESH_TOZERO)
+    return filtered_img
+
 def show_image(image):
     plt.imshow(image, cmap='gray')
     plt.axis('off')
     plt.show()
 
-# Threshold filter and crop
-def process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
+def get_center(image):
+    moments = cv2.moments(image)
+    center_x = moments["m10"] / moments["m00"]
+    center_y = moments["m01"] / moments["m00"]
+    return center_x, center_y
+
+def crop(image,x,y,crop_size,new_size):
+    s = (crop_size, crop_size)
+    # Fixed size crop
+    center = (x,y)
+    cropped_img = cv2.getRectSubPix(image, s, center)
+    processed_img = cv2.resize(cropped_img, (new_size,new_size), interpolation = cv2.INTER_AREA)
+    return processed_img
+
+def old_process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
     img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(img_gray, (7, 7), 0)
     _,filtered_img = cv2.threshold(blur, cutoff, 255, cv2.THRESH_TOZERO)
@@ -46,23 +75,21 @@ def process(image,cutoff,crop_size,new_size,apply_threshold_filter=False):
 
 #outputs 224x224 image
 final_size = 224
-
+#crop size
+size = 240
 img_processed = np.zeros((len(img),final_size,final_size),dtype=np.uint8)
-for i in range(len(img)):
-    file_name = Path(read_array[i]).name
+if len(img) > 4:
+    for i in range(len(img)//4):
+        combined_img = combine(img[i*4],img[i*4+1],img[i*4+2],img[i*4+3],40)
+        x,y = get_center(combined_img)
+        #show_image(combined_img)
+        for j in range(0,4):
+            img_filtered = process(img[i*4+j],20)
+            img_processed[i*4+j] = crop(img_filtered,x,y,size,final_size)
+            #show_image(img_processed[i*4+j])
+else:
+    for i in range(len(img)):
+        img_processed[i] = old_process(img[i], 50, size, final_size, True)
 
-    if file_name.startswith("N"):
-        size = 240
-    elif file_name.startswith("W"):
-        size = 960
-    else:
-        size = 240
-
-    # Cutoff may need to be higher depending on background brightness
-    # Set parameter to true to set background color to 0
-    img_processed[i] = process(img[i],55,size,final_size,True)
-    #show_image(img_processed[i])
-
-# Save the processed image
 for i in range(len(write_array)):
     cv2.imwrite(write_array[i],img_processed[i])
