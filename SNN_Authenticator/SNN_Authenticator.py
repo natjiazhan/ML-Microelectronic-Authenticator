@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from datetime import date
+import time
 
 # ---------------------------------------------------------
 # SETTINGS
@@ -18,26 +19,29 @@ img_dir = Path("Training_database")
 one_to_one_dir = Path("one_to_one_auth")
 test_img_dir = Path("Query_processed")
 auth_data_dir = Path("Auth_database")
+auth_test_dir = Path("Samples")
 image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
-select_weight = Path("saved_weights/2026-09-27.pth")
+select_weight = Path("saved_weights/2026-10-21.pth")
+embedding_cache_path = Path("auth_database_embeddings.pt")
 
 embedding_size = 128
-epochs = 60
+epochs = 30
 batch_size = 32
 pairs_per_epoch = 8000
-learning_rate = 0.003
+learning_rate = 0.001
 margin = 1.0
-set_threshold = 0.85
+set_threshold = 0.86
 use_set_threshold = True
 
 # Replicate split
-train_replicates = {1, 2, 3, 4, 5, 6, 7}
-validation_replicates = {8}
-test_replicates = {9, 10}
+train_replicates = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+validation_replicates = {10}
+test_replicates = {1}
+test_ref_replicates = {2}
 
 # Number of augmented versions generated from each TRAINING image
-new_images = 4
+new_images = 2
 
 random.seed(1)
 np.random.seed(1)
@@ -57,8 +61,13 @@ if torch.cuda.is_available():
 # ---------------------------------------------------------
 
 read_array = []
-
 for path in sorted(img_dir.iterdir()):
+    if path.is_file() and path.suffix.lower() in image_extensions:
+        read_array.append(str(path))
+for path in sorted(auth_data_dir.iterdir()):
+    if path.is_file() and path.suffix.lower() in image_extensions:
+        read_array.append(str(path))
+for path in sorted(auth_test_dir.iterdir()):
     if path.is_file() and path.suffix.lower() in image_extensions:
         read_array.append(str(path))
 
@@ -119,6 +128,8 @@ def image_gen(image):
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0
     )
+    random_brightness = random.uniform(0.9, 1.1)
+    gen_image = np.clip(gen_image.astype(np.float32)*random_brightness,0,255).astype(np.uint8)
     return gen_image
 
 # ---------------------------------------------------------
@@ -137,22 +148,29 @@ test_img = []
 test_ids = []
 test_direction = []
 
-for i in range(len(img)):
+test_img_ref = []
+test_ids_ref = []
+test_direction_ref = []
 
-    if replicate[i] in train_replicates:
+for i in range(len(img)):
+    if replicate[i] in train_replicates and int(sampleID[i]) < 100:
         train_img.append(img[i])
         train_ids.append(sampleID[i])
         train_direction.append(direction[i])
 
-    elif replicate[i] in validation_replicates:
+    elif replicate[i] in validation_replicates and int(sampleID[i]) < 100:
         val_img.append(img[i])
         val_ids.append(sampleID[i])
         val_direction.append(direction[i])
 
-    elif replicate[i] in test_replicates:
+    elif replicate[i] in test_replicates and int(sampleID[i]) >= 100:
         test_img.append(img[i])
         test_ids.append(sampleID[i])
         test_direction.append(direction[i])
+    elif replicate[i] in test_ref_replicates and int(sampleID[i]) >= 100:
+        test_img_ref.append(img[i])
+        test_ids_ref.append(sampleID[i])
+        test_direction_ref.append(direction[i])
 
 print("Original training images:", len(train_img))
 print("Validation images:", len(val_img))
@@ -192,7 +210,7 @@ def convert_to_gray(image_list):
 train_img = convert_to_gray(train_img)
 val_img = convert_to_gray(val_img)
 test_img = convert_to_gray(test_img)
-
+test_img_ref = convert_to_gray(test_img_ref)
 # ---------------------------------------------------------
 # NORMALIZE USING TRAINING DATA ONLY
 # ---------------------------------------------------------
@@ -206,9 +224,7 @@ if std == 0:
 train_img = (train_img - mean) / std
 val_img = (val_img - mean) / std
 test_img = (test_img - mean) / std
-
-print("Training mean:", mean)
-print("Training std:", std)
+test_img_ref = (test_img_ref - mean)/ std
 
 # ---------------------------------------------------------
 # SIAMESE PAIR DATASET
@@ -465,7 +481,94 @@ def evaluate_pairs(
 
     return same_scores, different_scores
 
+def evaluate_auth_test(
+        model,
+        query_images,
+        query_ids,
+        query_directions,
+        reference_images,
+        reference_ids,
+        reference_directions,
+        threshold
+):
+    model.eval()
+    model_device = next(model.parameters()).device
 
+    # Group reference images by (dot ID, angle)
+    reference_classes = {}
+
+    for i, (dot_id, angle) in enumerate(
+            zip(reference_ids, reference_directions)):
+        key = (int(dot_id), int(angle))
+        reference_classes.setdefault(key, []).append(i)
+
+    # Compute embeddings once for each image
+    def embed_images(images):
+        if len(images) == 0:
+            return []
+
+        tensors = torch.from_numpy(
+            np.asarray(images, dtype=np.float32)
+        ).unsqueeze(1).to(model_device)
+
+        embeddings = []
+
+        with torch.no_grad():
+            for start in range(0, len(tensors), batch_size):
+                batch = tensors[start:start + batch_size]
+                embeddings.append(model(batch))
+
+        return torch.cat(embeddings, dim=0)
+
+    query_embeddings = embed_images(query_images)
+    reference_embeddings = embed_images(reference_images)
+
+    same_scores = []
+    different_scores = []
+
+    # Evaluate every query against every reference at the same angle
+    for qi, (query_id, query_angle) in enumerate(
+            zip(query_ids, query_directions)):
+
+        query_id = int(query_id)
+        query_angle = int(query_angle)
+        query_class = (query_id, query_angle)
+
+        # Positive: same dot, same angle
+        for ri in reference_classes.get(query_class, []):
+            score = F.cosine_similarity(
+                query_embeddings[qi].unsqueeze(0),
+                reference_embeddings[ri].unsqueeze(0)
+            ).item()
+
+            same_scores.append(score)
+
+        # Negative: different dot, same angle
+        for (ref_id, ref_angle), indices in reference_classes.items():
+            if ref_angle != query_angle or ref_id == query_id:
+                continue
+
+            for ri in indices:
+                score = F.cosine_similarity(
+                    query_embeddings[qi].unsqueeze(0),
+                    reference_embeddings[ri].unsqueeze(0)
+                ).item()
+
+                different_scores.append(score)
+
+    true_positive = sum(s >= threshold for s in same_scores)
+    false_negative = sum(s < threshold for s in same_scores)
+    false_positive = sum(s >= threshold for s in different_scores)
+    true_negative = sum(s < threshold for s in different_scores)
+
+    total = (
+            true_positive + false_negative
+            + false_positive + true_negative
+    )
+    far = false_positive / (false_positive + true_negative)
+    frr = false_negative / (true_positive + false_negative)
+    weighted_accuracy = 0.5*(true_positive / (true_positive + false_negative)+true_negative / (true_negative + false_positive))
+    return same_scores, different_scores, weighted_accuracy, far, frr
 
 # ---------------------------------------------------------
 # FIND BEST VALIDATION THRESHOLD
@@ -510,7 +613,7 @@ def find_best_threshold(same_scores, different_scores):
 # TRAIN OR PREDICT
 # ---------------------------------------------------------
 
-mode = input("*Select Mode*\nTrain model (0)\n1 to 1 match (1)\nDatabase search (2)\nEnter Input: ")
+mode = input("*Select Mode*\nTrain model (0)\n1 to 1 match (1)\nDatabase search (2)\nTest Authenticator (3)\nEnter Input: ")
 
 # ---------------------------------------------------------
 # TRAIN
@@ -582,39 +685,24 @@ if mode == '0':
     # FINAL TEST
     # -----------------------------------------------------
 
-    same_test_scores, different_test_scores = evaluate_pairs(
+    (
+        same_test_scores,
+        different_test_scores,
+        test_accuracy,
+        far,
+        frr
+    ) = evaluate_auth_test(
         cnn,
         test_img,
         test_ids,
         test_direction,
-        train_img,
-        train_ids,
-        train_direction,
-        num_pairs=2000
+        test_img_ref,
+        test_ids_ref,
+        test_direction_ref,
+        threshold
     )
 
-    correct = 0
-    total = 0
-
-    for score in same_test_scores:
-        if score >= threshold:
-            correct += 1
-        total += 1
-
-    for score in different_test_scores:
-        if score < threshold:
-            correct += 1
-        total += 1
-    test_accuracy = correct / total
-
-    true_positive = sum(score >= threshold for score in same_test_scores)
-    false_negative = sum(score < threshold for score in same_test_scores)
-    false_positive = sum(score >= threshold for score in different_test_scores)
-    true_negative = sum(score < threshold for score in different_test_scores)
-    far = false_positive / (false_positive + true_negative)
-    frr = false_negative / (true_positive + false_negative)
-
-    print("Final test pair accuracy:", test_accuracy)
+    print("Test pair accuracy:", test_accuracy)
     print("False acceptance rate:", far)
     print("False rejection rate:", frr)
     print("Average same-dot similarity:", np.mean(same_test_scores))
@@ -663,7 +751,7 @@ elif mode == '1':
     saved_std = checkpoint["std"]
     if not use_set_threshold:
         threshold = checkpoint["threshold"]
-        print("Using Auto Threshold")
+        print("Using Auto Threshold: " + str(threshold))
     else:
         threshold = set_threshold
         print("Using Manual Threshold")
@@ -709,7 +797,7 @@ elif mode == '1':
 # ---------------------------------------------------------
 
 elif mode == '2':
-
+    start_time = time.perf_counter()
     checkpoint = torch.load(
         select_weight,
         map_location=device
@@ -723,7 +811,7 @@ elif mode == '2':
 
     if not use_set_threshold:
         threshold = checkpoint["threshold"]
-        print("Using Auto Threshold")
+        print("Using Auto Threshold: " + str(threshold))
     else:
         threshold = set_threshold
         print("Using Manual Threshold")
@@ -835,22 +923,155 @@ elif mode == '2':
 
     candidate_ids = []
 
-    for candidate_id, candidate_images in complete_database.items():
-        candidate_ids.append(candidate_id)
 
-        for angle in [1, 2, 3, 4]:
-            path = candidate_images[angle]
-            auth_image = cv2.imread(str(path))
+    # -----------------------------------------------------
+    # LOAD OR COMPUTE DATABASE EMBEDDINGS
+    # -----------------------------------------------------
 
-            if auth_image is None:
-                raise ValueError(
-                    f"Could not read {path}"
+    # Create a signature that changes if the model checkpoint,
+    # normalization values, or database files change.
+    database_file_info = []
+
+    for path in sorted(auth_data_dir.iterdir()):
+        if path.is_file() and path.suffix.lower() in image_extensions:
+            stat = path.stat()
+            database_file_info.append(
+                (
+                    str(path.resolve()),
+                    stat.st_mtime_ns,
+                    stat.st_size
                 )
-            auth_image = cv2.cvtColor(auth_image, cv2.COLOR_BGR2GRAY).astype(np.float32)
-            auth_image = (auth_image - saved_mean) / saved_std
-            auth_embedding = get_embedding(cnn, auth_image)
-            similarity = compare_embeddings(test_embeddings[angle], auth_embedding)
+            )
+
+    checkpoint_stat = select_weight.stat()
+
+    cache_signature = (
+        str(select_weight.resolve()),
+        checkpoint_stat.st_mtime_ns,
+        checkpoint_stat.st_size,
+        float(saved_mean),
+        float(saved_std),
+        tuple(database_file_info)
+    )
+
+    cached_data = None
+
+    if embedding_cache_path.exists():
+        try:
+            cached_data = torch.load(
+                embedding_cache_path,
+                map_location="cpu",
+                weights_only=True
+            )
+
+            if cached_data["signature"] != cache_signature:
+                print("Database or model changed. Rebuilding embedding cache.")
+                cached_data = None
+            else:
+                print("Using cached database embeddings.")
+
+        except (OSError, RuntimeError, KeyError, ValueError, EOFError):
+            print("Embedding cache is invalid. Rebuilding it.")
+            cached_data = None
+
+    # Rebuild the cache if it does not exist or is outdated.
+    if cached_data is None:
+        print("Computing database embeddings...")
+
+        database_embeddings = {}
+        database_batch_images = []
+        database_batch_keys = []
+
+        # Collect images in candidate/angle order.
+        for candidate_id, candidate_images in complete_database.items():
+            for angle in [1, 2, 3, 4]:
+                path = candidate_images[angle]
+                auth_image = cv2.imread(str(path))
+
+                if auth_image is None:
+                    raise ValueError(f"Could not read {path}")
+
+                auth_image = cv2.cvtColor(auth_image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                auth_image = (auth_image - saved_mean) / saved_std
+                database_batch_images.append(auth_image)
+                database_batch_keys.append((candidate_id, angle))
+
+        cnn.eval()
+
+        with torch.no_grad():
+            for start in range(
+                0, len(database_batch_images), batch_size
+            ):
+                batch_images = np.stack(
+                    database_batch_images[start:start + batch_size]
+                )
+
+                batch_tensor = torch.from_numpy(
+                    batch_images
+                ).float().unsqueeze(1).to(device)
+
+                batch_embeddings = cnn(batch_tensor).cpu()
+
+                batch_keys = database_batch_keys[
+                    start:start + batch_size
+                ]
+
+                for key, embedding in zip(
+                    batch_keys, batch_embeddings
+                ):
+                    candidate_id, angle = key
+
+                    if candidate_id not in database_embeddings:
+                        database_embeddings[candidate_id] = {}
+
+                    database_embeddings[candidate_id][angle] = (
+                        embedding.clone()
+                    )
+
+        # Save embeddings on the CPU to keep the cache portable.
+        embedding_cache_path.parent.mkdir(
+            parents=True, exist_ok=True
+        )
+
+        torch.save(
+            {
+                "signature": cache_signature,
+                "embeddings": database_embeddings
+            },
+            embedding_cache_path
+        )
+
+        print("Saved database embedding cache.")
+
+    else:
+        database_embeddings = cached_data["embeddings"]
+
+    # -----------------------------------------------------
+    # COMPUTE SIMILARITIES USING CACHED EMBEDDINGS
+    # -----------------------------------------------------
+
+    candidate_ids = list(complete_database.keys())
+
+    similarity_scores = {
+        1: [],
+        2: [],
+        3: [],
+        4: []
+    }
+
+    for candidate_id in candidate_ids:
+        for angle in [1, 2, 3, 4]:
+            auth_embedding = database_embeddings[
+                candidate_id
+            ][angle].to(device)
+
+            similarity = compare_embeddings(
+                test_embeddings[angle],
+                auth_embedding.unsqueeze(0)
+            )
+
             similarity_scores[angle].append(similarity)
+
 
     # -----------------------------------------------------
     # SUM THE FOUR SIMILARITY SCORES
@@ -962,6 +1183,46 @@ elif mode == '2':
             print(f"D{dot_id:04d}")
     else:
         print("No database match")
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print("Execution time: " + str(execution_time))
+elif mode == '3':
+    checkpoint = torch.load(
+        select_weight,
+        map_location=device)
 
+    cnn.load_state_dict(checkpoint["model_state"])
+    if not use_set_threshold:
+        threshold = checkpoint["threshold"]
+        print("Using Auto Threshold: " + str(threshold))
+    else:
+        threshold = set_threshold
+        print("Using Manual Threshold")
+    (
+        same_test_scores,
+        different_test_scores,
+        test_accuracy,
+        far,
+        frr
+    ) = evaluate_auth_test(
+        cnn,
+        test_img,
+        test_ids,
+        test_direction,
+        test_img_ref,
+        test_ids_ref,
+        test_direction_ref,
+        threshold
+    )
+
+    print("Test pair accuracy:", test_accuracy)
+    print("False acceptance rate:", far)
+    print("False rejection rate:", frr)
+    print("Average same-dot similarity:", np.mean(same_test_scores))
+    print("Average different-dot similarity:", np.mean(different_test_scores))
+    four_angle_tac = (1-frr)**4
+    four_angle_far = 1-((1-(far**4))**50)
+    print("Four angle authentication accuracy: ", four_angle_tac)
+    print("Four angle false positive rate: ", four_angle_far)
 else:
     print("Invalid Input")
