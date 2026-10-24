@@ -27,4 +27,8 @@ If all 4 images in the Query match with another set in Auth_database with simila
 Sample images in the Samples folder are already processed, and can be copied into the Query_processed folder to test the Autheticator.
 For raw images, put them into the Query_raw folder, then run Query_img_processing.py before running the SNN_Authenticator.py.
 
+4 Test Authenticator Mode
+
+This mode tests every combination of the images in the Samples folder with the images in the Auth_database folder to measure authenticator performance.
+
 Author: Nam Nguyen
