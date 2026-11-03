@@ -33,6 +33,7 @@ learning_rate = 0.001
 margin = 1.0
 set_threshold = 0.86
 use_set_threshold = True
+use_saved_mean = True
 
 # Replicate split
 train_replicates = {1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -214,9 +215,12 @@ test_img_ref = convert_to_gray(test_img_ref)
 # ---------------------------------------------------------
 # NORMALIZE USING TRAINING DATA ONLY
 # ---------------------------------------------------------
-
-mean = train_img.mean()
-std = train_img.std()
+if use_saved_mean:
+    mean = 2.477653
+    std = 11.137917
+else:
+    mean = train_img.mean()
+    std = train_img.std()
 
 if std == 0:
     raise ValueError("Training image standard deviation is zero.")
