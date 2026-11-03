@@ -80,11 +80,11 @@ size = 240
 img_processed = np.zeros((len(img),final_size,final_size),dtype=np.uint8)
 if len(img) > 4:
     for i in range(len(img)//4):
-        combined_img = combine(img[i*4],img[i*4+1],img[i*4+2],img[i*4+3],50)
+        combined_img = combine(img[i*4],img[i*4+1],img[i*4+2],img[i*4+3],40)
         x,y = get_center(combined_img)
         #show_image(combined_img)
         for j in range(0,4):
-            img_filtered = process(img[i*4+j],40)
+            img_filtered = process(img[i*4+j],20)
             img_processed[i*4+j] = crop(img_filtered,x,y,size,final_size)
             #show_image(img_processed[i*4+j])
 else:
