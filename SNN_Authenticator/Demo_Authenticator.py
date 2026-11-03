@@ -25,6 +25,7 @@ embedding_cache_path = Path("auth_database_embeddings.pt")
 set_threshold = 0.87
 use_set_threshold = True
 reset_query = True
+use_saved_mean = True
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -171,9 +172,12 @@ test_img = convert_to_gray(test_img)
 # ---------------------------------------------------------
 # NORMALIZE USING TRAINING DATA ONLY
 # ---------------------------------------------------------
-
-mean = test_img.mean()
-std = test_img.std()
+if use_saved_mean:
+    mean = 2.477653
+    std = 11.137917
+else:
+    mean = test_img.mean()
+    std = test_img.std()
 
 if std == 0:
     raise ValueError("Training image standard deviation is zero.")
