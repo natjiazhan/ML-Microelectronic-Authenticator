@@ -31,4 +31,11 @@ For raw images, put them into the Query_raw folder, then run Query_img_processin
 
 This mode tests every combination of the images in the Samples folder with the images in the Auth_database folder to measure authenticator performance.
 
+Demo_authenticator is a reduced version of SNN_authenticator that only does database search mode.
+
+For this version, only Auth_database, Query_raw, Query_processed, and saved_weights directories are needed.
+
+To use Demo_authenticator, just upload 4 images into the Query_processed or Query_raw and run to do a database search.
+Image processing is integrated in this version, so you don't need to also use Query_img_processing with raw images.
+
 Author: Nam Nguyen
